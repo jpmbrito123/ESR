@@ -50,7 +50,7 @@ def stream(streamer_info):
         client_info = {}
         try:
             client_info = {'rtspSocket': rtsp_socket.accept()}
-         #Ver como fazer esta parte   ServerStreamer(client_info, streamer_info[4], nodes_interested, not streamer_info[2], streamer_info[5]).run()
+            ServerWorker(client_info, streamer_info[4], nodes_interested, not streamer_info[2], streamer_info[5]).run()
 
         except Exception as ex:
             if ex == "404":

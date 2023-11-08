@@ -160,3 +160,89 @@ class ServerWorker:
             print("404 NOT FOUND")
         elif code == self.CON_ERR_500:
             print("500 CONNECTION ERROR")
+
+    def send(self):
+        # Verificar o tipo de solicitação e o estado do cliente
+        if self.request_type == self.SETUP and self.state == self.INIT:
+            self.handle_setup_request()
+        elif self.request_type == self.PLAY and self.state == self.READY:
+            self.handle_play_request()
+        elif self.request_type == self.PAUSE and self.state == self.PLAYING:
+            self.handle_pause_request()
+        elif self.request_type == self.TEARDOWN and self.state != self.INIT:
+            self.handle_teardown_request()
+
+    def handle_setup_request(self):
+        # Incrementar o número de sequência RTSP
+        self.rtspSeq += 1
+        print('\nSETUP event\n')
+
+        # Construir a solicitação RTSP SETUP
+        request = f"""SETUP {self.fileName} RTSP/1.0\r
+     CSeq: {self.rtspSeq}\r
+     Transport: RTP/UDP; client_port= {self.rtpPort}\r
+     \r"""
+
+        # Manter o controle da solicitação enviada
+        self.requestSent = self.SETUP
+
+        # Enviar a solicitação RTSP usando rtspSocket
+        self.send_rtsp_request(request)
+
+    def handle_play_request(self):
+        # Incrementar o número de sequência RTSP
+        self.rtspSeq += 1
+        print('\nPLAY event\n')
+
+        # Construir a solicitação RTSP PLAY
+        request = f"""PLAY {self.fileName} RTSP/1.0\r
+     CSeq: {self.rtspSeq}\r
+     Session: {self.sessionId}\r
+     \r"""
+
+        # Manter o controle da solicitação enviada
+        self.requestSent = self.PLAY
+
+        # Enviar a solicitação RTSP usando rtspSocket
+        self.send_rtsp_request(request)
+
+    def handle_pause_request(self):
+        # Incrementar o número de sequência RTSP
+        self.rtspSeq += 1
+        print('\nPAUSE event\n')
+
+        # Construir a solicitação RTSP PAUSE
+        request = f"""PAUSE {self.fileName} RTSP/1.0\r
+     CSeq: {self.rtspSeq}\r
+     Session: {self.sessionId}\r
+     \r"""
+
+        # Manter o controle da solicitação enviada
+        self.requestSent = self.PAUSE
+
+        # Enviar a solicitação RTSP usando rtspSocket
+        self.send_rtsp_request(request)
+
+    def handle_teardown_request(self):
+        # Incrementar o número de sequência RTSP
+        self.rtspSeq += 1
+        print('\nTEARDOWN event\n')
+
+        # Construir a solicitação RTSP TEARDOWN
+        request = f"""TEARDOWN {self.fileName} RTSP/1.0\r
+     CSeq: {self.rtspSeq}\r
+     Session: {self.sessionId}\r
+     \r"""
+
+        # Manter o controle da solicitação enviada
+        self.requestSent = self.TEARDOWN
+
+        # Enviar a solicitação RTSP usando rtspSocket
+        self.send_rtsp_request(request)
+
+    def send_rtsp_request(self, request):
+        # Enviar a solicitação RTSP usando rtspSocket
+        destAddr = (self.serverAddr, self.serverPort)
+        self.rtspSocket.sendto(request.encode('utf-8'), destAddr)
+
+        print('\nData sent:\n' + request)

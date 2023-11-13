@@ -7,12 +7,154 @@ import sys
 import threading
 import time
 import logging
+from tkinter import Tk
 from logging import FileHandler
 from socket import SO_REUSEADDR, SOL_SOCKET
 
 #import Client
-import Server
+from server import *
+from Client import Client
+port_flooding =12345
 
+class Nodo:
+    my_ip=None
+    streamings={} 
+    my_type=None
+    nodos_vizinhos=[]
+    rps = []
+    cls = []
+    nos = []
+
+    def parseFile(self,node):
+        with open('test.json', 'r') as arquivo:
+            # Carregar os dados do arquivo JSON para um dicionário
+            dados = json.load(arquivo)[node]
+        self.rps = dados["RP"]
+        self.cls = dados["CL"]
+        self.nos = dados["NO"]
+        self.my_type = dados["type"]
+        self.my_ip = dados["ip"]
+            
+
+    def run(self,name):
+        self.parseFile(name)
+
+        if self.my_type == "Rp":
+            None
+        elif self.my_type == "Client":
+            root = Tk()
+	
+            # Create a new client
+            app = Client(root, self.nos[0], port_flooding, port_flooding, fileName)
+            app.master.title("RTPClient")	
+            root.mainloop()
+        else:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+            s.bind((self.my_ip, port_flooding))
+
+            self.listening(s)
+    
+    def listening(self,s):
+        print(f"[{self.my_ip} à escuta em {port_flooding}]\n")
+
+        while True:
+            data, address = s.recvfrom(1024)
+            m = json.loads(data)
+
+            self.rec(s,m,address) 
+            
+
+    def rec(self,s,m,address):
+        #ja sabe o caminho da stream
+        #vai abrir um socket para receber pacotes da stream e enviar para o proximo nodo
+        # e vai pedir a stream ou se ja tiver a receber a stream so começa a enviar os pacotes
+        if m['stream_state']:
+            my_index = m['path'].index(self.my_ip)
+            if my_index == len(m['path'])-1:
+                self.start_stream(m,address)
+            else:
+                self.wait_stream(s,m,address)
+        #envia para o nodo anterior um caminho possivel
+        elif m['stream_port']:
+            prox_node = m['path'].index(self.my_ip)
+            prox_node = m['path'][prox_node-1]
+            
+            message_data = json.dumps(m, default=default)
+            s.sendto(message_data.encode(), (prox_node,port_flooding ))
+        #esta a procura de um caminho
+        #se tiver a stream manda a mensagem de volta com a porta se nao tiver manda aos nodos vizinhos execeto o anterior
+        elif self.my_ip not in m['path']:
+            m['saltos']=m['saltos']+1
+            m['path'].append(self.my_ip)
+            if m['stream_name'] in self.streamings.keys:
+                m['stream_port']=self.streamings[m['stream_name']]['port']
+                print(f"\n[{self.my_ip}] enviou para [{m['path'][-2]}:{port_flooding}]\n")
+                message_data = json.dumps(m, default=default)
+                s.sendto(message_data.encode(), (m['path'][-2],port_flooding ))
+            else:
+                for node in self.nos:
+                    if node!=address[0]:
+                        print(f"\n[{self.my_ip}] enviou para [{node}:{port_flooding}]\n")
+                        message_data = json.dumps(m, default=default)
+                        s.sendto(message_data.encode(), (node,port_flooding ))
+                for node in self.rps:
+                    if node!=address[0]:
+                        print(f"\n[{self.my_ip}] enviou para [{node}:{port_flooding}]\n")
+                        message_data = json.dumps(m, default=default)
+                        s.sendto(message_data.encode(), (node,port_flooding ))
+    
+    def start_stream(self,message,address):
+        self.streamings[message['stream_name']]['send_to'].append(address[0])
+
+    def wait_stream(self,s,message,address):
+        my_index = message['path'].index(self.my_ip)
+        prox_node = message['path'][my_index+1]
+
+        #adicionar as minhas streams
+        if message['stream_name'] in self.streamings.keys:
+            self.streamings[message['stream_name']]['send_to'].append(address[0])
+        else:
+            self.streamings[message['stream_name']]={'ip':message['path'][-1],"port":message['stream_port'],'send_to':[address[0]]}
+            
+            #criar socket para enviar a stream
+            s1 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            send_stream = threading.Thread(target=self.send_stream, args=(s1,message['stream_name'],prox_node))
+            send_stream.start()
+            #informar o proximo para começar a mandar
+            message_data = json.dumps(message, default=default)
+            s.sendto(message_data.encode(), (prox_node,port_flooding ))
+
+    def send_stream(self,s,stream,prox_node):
+        s.bind((prox_node,message['stream_port']))
+
+        # Socket de envio
+        udp_socket_enviar = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+        # Loop principal para receber e enviar mensagens
+        while True:
+            # Recebe dados do socket (o segundo valor retornado é o endereço
+            #  do remetente)
+            dados, endereco_remetente = s.recvfrom(1024)
+
+            # Exibe a mensagem recebida
+            print(f"Recebido: {dados.decode('utf-8')} de {endereco_remetente}")
+            for node in self.streamings[stream]['send_to']:
+            # Envia a mensagem para os dois destinos diferentes
+                udp_socket_enviar.sendto(dados, (node,message['stream_port']))
+        
+        s.close()
+        udp_socket_enviar.close()
+
+nodo = Nodo()
+
+nodo.run(sys.argv[1])
+
+
+            
+
+
+'''        
 filepath = sys.argv[1]
 #acrescentar função de parser
 
@@ -68,7 +210,9 @@ Estrutura da Mensagem a enviar aos nodos aquando do Flooding:
 message = {
     'nodo': node_id,
     'flood_port': port_flooding,
+    'stream_name':"saddas",
     'stream_port': port_streaming,
+    'state':True,
     'tempo': [datetime.now(), timedelta(days=0, hours=0, seconds=0)],
     'saltos': 0,
     'last_refresh': datetime.now(),
@@ -112,7 +256,7 @@ def port_list():
 def send_message(nodo, m, s):
     message_data = json.dumps(m, default=default)
     s.sendto(message_data.encode(), (nodo['ip'], int(nodo['port'])))
-
+ 
 
 def flood(s, m, list_):
     for entry in list_:
@@ -276,3 +420,4 @@ if is_server or is_bigNode:
 
 else:
     media_player.join()
+'''

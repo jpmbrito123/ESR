@@ -1,7 +1,9 @@
 from tkinter import *
-import tkinter.messagebox
+from tkinter import messagebox
 from PIL import Image, ImageTk
 import socket, threading, sys, traceback, os
+from datetime import datetime
+import json
 
 from RtpPacket import RtpPacket
 
@@ -20,20 +22,21 @@ class Client:
 	TEARDOWN = 3
 	
 	# Initiation..
-	def __init__(self, master, serveraddr, serverport, rtpport, filename):
+	def __init__(self, master, serveraddr, serverport, rtpport,fileName,ip):
 		self.master = master
 		self.master.protocol("WM_DELETE_WINDOW", self.handler)
 		self.createWidgets()
 		self.serverAddr = serveraddr
 		self.serverPort = int(serverport)
 		self.rtpPort = int(rtpport)
-		self.fileName = filename
 		self.rtspSeq = 0
 		self.sessionId = 0
 		self.requestSent = -1
 		self.teardownAcked = 0
 		self.connectToServer()
 		self.frameNbr = 0
+		self.fileName=fileName
+		self.my_ip=ip
 		
 	def createWidgets(self):
 		"""Build GUI."""
@@ -139,7 +142,7 @@ class Client:
 		try:
 			self.rtspSocket.connect((self.serverAddr, self.serverPort))
 		except:
-			tkMessageBox.showwarning('Connection Failed', 'Connection to \'%s\' failed.' %self.serverAddr)
+			messagebox.showwarning('Connection Failed', 'Connection to \'%s\' failed.' %self.serverAddr)
 	
 	def sendRtspRequest(self, requestCode):
 		"""Send RTSP request to the server."""	
@@ -152,9 +155,16 @@ class Client:
 			print('\nSetup event.\n')
 			
 			# Write the RTSP request to be sent.
-			request = f"""SETUP {self.fileName}
-			sequenceNumber: {self.rtspSeq}
-			hostname: {self.hostname} rtspPort: {self.rtpPort}"""
+			request = {
+				'hostname': self.my_ip,
+				'stream_name':self.fileName,
+				'stream_port': None,
+				'state':self.SETUP,
+				'tempo': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+				'saltos': 0,
+				'path': [],
+				'sequenceNumber': self.rtspSeq
+			} 
 			
 			# Keep track of the sent request.
 			self.requestSent = self.SETUP
@@ -205,9 +215,11 @@ hostname: {self.hostname} rtspPort: {self.rtpPort}"""
 		
 		# Send the RTSP request using rtspSocket.
 		destAddr = (self.serverAddr, self.serverPort)
-		self.rtspSocket.sendto(request.encode('utf-8'), destAddr)
+		self.rtspSocket.sendto(json.dumps(request).encode('utf-8'), destAddr)
 
-		print('\nData sent: \n' + request)
+		print('\nData sent: \n')
+		print(request)
+		print('-------------------------------------')
 	
 	def recvRtspReply(self):
 		"""Receive RTSP reply from the server."""
@@ -312,12 +324,12 @@ hostname: {self.hostname} rtspPort: {self.rtpPort}"""
 
 			print('\nBind \n')
 		except:
-			tkMessageBox.showwarning('Unable to Bind', 'Unable to bind PORT=%d' %self.rtpPort)
+			messagebox.showwarning('Unable to Bind', 'Unable to bind PORT=%d' %self.rtpPort)
 
 	def handler(self):
 		"""Handler on explicitly closing the GUI window."""
 		self.pauseMovie()
-		if tkMessageBox.askokcancel("Quit?", "Are you sure you want to quit?"):
+		if messagebox.askokcancel("Quit?", "Are you sure you want to quit?"):
 			self.exitClient()
 		else: # When the user presses cancel, resume playing.
 			self.playMovie()

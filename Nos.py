@@ -26,7 +26,7 @@ class Nodo:
     nos = []
 
     def parseFile(self,node):
-        with open('test.json', 'r') as arquivo:
+        with open('/home/core/Desktop/ESR/fase2/test.json', 'r') as arquivo:
             # Carregar os dados do arquivo JSON para um dicionário
             dados = json.load(arquivo)[node]
         self.rps = dados["RP"]
@@ -45,31 +45,44 @@ class Nodo:
             root = Tk()
 	
             # Create a new client
-            app = Client(root, self.nos[0], port_flooding, port_flooding, fileName)
+            app = Client(root, self.nos[0], port_flooding, port_flooding,"videoA",self.my_ip)
             app.master.title("RTPClient")	
             root.mainloop()
         else:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.listening()
+    
+    def listening(self):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
             s.bind((self.my_ip, port_flooding))
+            s.listen(5)  # Permita até 5 conexões pendentes
+            print(f"[{self.my_ip} à escuta em {port_flooding}]\n")
+            while True:
+                client_socket, client_address = s.accept()
+                print(f"Conexão estabelecida com {client_address}")
+                
+                try:
+                    message = json.loads(client_socket.recv(1024).decode('utf-8'))
+                    print(message)
 
-            self.listening(s)
-    
-    def listening(self,s):
-        print(f"[{self.my_ip} à escuta em {port_flooding}]\n")
+                    process_message = threading.Thread(target=self.rec, args=(client_socket,message,client_address))
+                    process_message.start()
+                except Exception as e:
+                    print(f"Erro durante o processamento da mensagem: {e}")
+        except Exception as e:
+            print(f"Erro durante o listen: {e}")
+        finally:
+            s.close()
 
-        while True:
-            data, address = s.recvfrom(1024)
-            m = json.loads(data)
 
-            self.rec(s,m,address) 
             
 
     def rec(self,s,m,address):
         #ja sabe o caminho da stream
         #vai abrir um socket para receber pacotes da stream e enviar para o proximo nodo
         # e vai pedir a stream ou se ja tiver a receber a stream so começa a enviar os pacotes
-        if m['stream_state']:
+        if m['state'] == 1:
             my_index = m['path'].index(self.my_ip)
             if my_index == len(m['path'])-1:
                 self.start_stream(m,address)
@@ -80,29 +93,29 @@ class Nodo:
             prox_node = m['path'].index(self.my_ip)
             prox_node = m['path'][prox_node-1]
             
-            message_data = json.dumps(m, default=default)
-            s.sendto(message_data.encode(), (prox_node,port_flooding ))
+            message_data = json.dumps(m)
+            s.sendto(message_data.encode('utf-8'), (prox_node,port_flooding ))
         #esta a procura de um caminho
         #se tiver a stream manda a mensagem de volta com a porta se nao tiver manda aos nodos vizinhos execeto o anterior
         elif self.my_ip not in m['path']:
             m['saltos']=m['saltos']+1
             m['path'].append(self.my_ip)
-            if m['stream_name'] in self.streamings.keys:
+            if m['stream_name'] in self.streamings.keys():
                 m['stream_port']=self.streamings[m['stream_name']]['port']
                 print(f"\n[{self.my_ip}] enviou para [{m['path'][-2]}:{port_flooding}]\n")
-                message_data = json.dumps(m, default=default)
-                s.sendto(message_data.encode(), (m['path'][-2],port_flooding ))
+                message_data = json.dumps(m)
+                s.sendto(message_data.encode('utf-8'), (m['path'][-2],port_flooding ))
             else:
                 for node in self.nos:
                     if node!=address[0]:
                         print(f"\n[{self.my_ip}] enviou para [{node}:{port_flooding}]\n")
-                        message_data = json.dumps(m, default=default)
-                        s.sendto(message_data.encode(), (node,port_flooding ))
+                        message_data = json.dumps(m)
+                        s.sendto(message_data.encode('utf-8'), (node,port_flooding ))
                 for node in self.rps:
                     if node!=address[0]:
                         print(f"\n[{self.my_ip}] enviou para [{node}:{port_flooding}]\n")
-                        message_data = json.dumps(m, default=default)
-                        s.sendto(message_data.encode(), (node,port_flooding ))
+                        message_data = json.dumps(m)
+                        s.sendto(message_data.encode('utf-8'), (node,port_flooding ))
     
     def start_stream(self,message,address):
         self.streamings[message['stream_name']]['send_to'].append(address[0])
@@ -122,8 +135,8 @@ class Nodo:
             send_stream = threading.Thread(target=self.send_stream, args=(s1,message['stream_name'],prox_node))
             send_stream.start()
             #informar o proximo para começar a mandar
-            message_data = json.dumps(message, default=default)
-            s.sendto(message_data.encode(), (prox_node,port_flooding ))
+            message_data = json.dumps(message)
+            s.sendto(message_data.encode('utf-8'), (prox_node,port_flooding ))
 
     def send_stream(self,s,stream,prox_node):
         s.bind((prox_node,message['stream_port']))

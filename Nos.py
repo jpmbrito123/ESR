@@ -14,16 +14,21 @@ from socket import SO_REUSEADDR, SOL_SOCKET
 #import Client
 from server import *
 from Client import Client
+from Rp import Rp
 port_flooding =12345
 
 class Nodo:
     my_ip=None
     streamings={} 
     my_type=None
-    nodos_vizinhos=[]
     rps = []
     cls = []
     nos = []
+    sockets = {}
+    SETUP = 0
+    PLAY = 1
+    PAUSE = 2
+    TEARDOWN = 3
 
     def parseFile(self,node):
         with open('/home/core/Desktop/ESR/fase2/test.json', 'r') as arquivo:
@@ -40,7 +45,8 @@ class Nodo:
         self.parseFile(name)
 
         if self.my_type == "Rp":
-            None
+            rp = Rp(self.rps,self.cls,self.nos,self.my_ip,port_flooding)
+            rp.run()
         elif self.my_type == "Client":
             root = Tk()
 	
@@ -60,62 +66,70 @@ class Nodo:
             print(f"[{self.my_ip} à escuta em {port_flooding}]\n")
             while True:
                 client_socket, client_address = s.accept()
-                print(f"Conexão estabelecida com {client_address}")
-                
-                try:
-                    message = json.loads(client_socket.recv(1024).decode('utf-8'))
-                    print(message)
+                print(f"Conexão estabelecida com {client_address}\n")
+                self.sockets[client_address[0]]={'port':client_address[1],'socket':client_socket,'client':[]}
 
-                    process_message = threading.Thread(target=self.rec, args=(client_socket,message,client_address))
-                    process_message.start()
-                except Exception as e:
-                    print(f"Erro durante o processamento da mensagem: {e}")
+                handle = threading.Thread(target=self.handle_tcp_client, args=(client_socket,client_address))
+                handle.start()
         except Exception as e:
             print(f"Erro durante o listen: {e}")
         finally:
             s.close()
 
 
-            
+    def handle_tcp_client(self,s,address):
+        while True:
+            try:
+                message = json.loads(s.recv(1024).decode('utf-8'))
+                self.sockets[address[0]]['client'] = [message['hostname']]
+                print(f"Recebi: {message} de {address}\n")
+
+                process_message = threading.Thread(target=self.rec, args=(s, message, address))
+                process_message.start()
+
+            except Exception as ex:
+                # Trate outras exceções não especificadas
+                print(f"Erro desconhecido: {ex}\nConeçao com {address} fechada\n\n")
+                s.close()
+                break  # Saia do loop ou tome outras medidas, dependendo do caso
 
     def rec(self,s,m,address):
         #ja sabe o caminho da stream
         #vai abrir um socket para receber pacotes da stream e enviar para o proximo nodo
         # e vai pedir a stream ou se ja tiver a receber a stream so começa a enviar os pacotes
-        if m['state'] == 1:
+        if m['state'] == self.PLAY:
             my_index = m['path'].index(self.my_ip)
             if my_index == len(m['path'])-1:
                 self.start_stream(m,address)
             else:
                 self.wait_stream(s,m,address)
-        #envia para o nodo anterior um caminho possivel
-        elif m['stream_port']:
-            prox_node = m['path'].index(self.my_ip)
-            prox_node = m['path'][prox_node-1]
-            
-            message_data = json.dumps(m)
-            s.sendto(message_data.encode('utf-8'), (prox_node,port_flooding ))
-        #esta a procura de um caminho
-        #se tiver a stream manda a mensagem de volta com a porta se nao tiver manda aos nodos vizinhos execeto o anterior
-        elif self.my_ip not in m['path']:
-            m['saltos']=m['saltos']+1
-            m['path'].append(self.my_ip)
-            if m['stream_name'] in self.streamings.keys():
-                m['stream_port']=self.streamings[m['stream_name']]['port']
-                print(f"\n[{self.my_ip}] enviou para [{m['path'][-2]}:{port_flooding}]\n")
-                message_data = json.dumps(m)
-                s.sendto(message_data.encode('utf-8'), (m['path'][-2],port_flooding ))
-            else:
-                for node in self.nos:
-                    if node!=address[0]:
-                        print(f"\n[{self.my_ip}] enviou para [{node}:{port_flooding}]\n")
-                        message_data = json.dumps(m)
-                        s.sendto(message_data.encode('utf-8'), (node,port_flooding ))
-                for node in self.rps:
-                    if node!=address[0]:
-                        print(f"\n[{self.my_ip}] enviou para [{node}:{port_flooding}]\n")
-                        message_data = json.dumps(m)
-                        s.sendto(message_data.encode('utf-8'), (node,port_flooding ))
+        elif m['state'] == self.SETUP:
+            #envia para o nodo anterior o caminho escolhido
+
+            if m['stream_port']:
+                node = m['path'].index(self.my_ip)
+                ant_node = m['path'][node+1]
+                prox_node = m['path'][node-1]
+                
+                if(m['stream_name'] not in self.streamings.keys()):
+                    self.streamings[m['stream_name']]={'ip':m['path'][-1],"port":m['stream_port'],'send_to':[]}
+                
+                    #criar socket para enviar a stream
+                    s1 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    send_stream = threading.Thread(target=self.send_stream, args=(s1,m['stream_name'],ant_node))
+                    send_stream.start()
+
+                self.send_tcp(m,(prox_node,port_flooding ))
+            #esta a procura de um caminho
+            #se tiver a stream manda a mensagem de volta com a porta se nao tiver manda aos nodos vizinhos execeto o anterior
+            elif self.my_ip not in m['path']:
+                m['saltos']=m['saltos']+1
+                m['path'].append(self.my_ip)
+                for nodes in [self.nos,self.rps]:
+                    for node in nodes:
+                        if node!=address[0]:
+                            print(f"\n[{self.my_ip}] enviou para [{node}:{port_flooding}]\n")
+                            self.send_tcp(m,(node,port_flooding ))
     
     def start_stream(self,message,address):
         self.streamings[message['stream_name']]['send_to'].append(address[0])
@@ -123,41 +137,69 @@ class Nodo:
     def wait_stream(self,s,message,address):
         my_index = message['path'].index(self.my_ip)
         prox_node = message['path'][my_index+1]
+        self.streamings[message['stream_name']]['send_to'].append(address[0])
+        self.send_tcp(m,(node,port_flooding ))
 
-        #adicionar as minhas streams
-        if message['stream_name'] in self.streamings.keys:
-            self.streamings[message['stream_name']]['send_to'].append(address[0])
-        else:
-            self.streamings[message['stream_name']]={'ip':message['path'][-1],"port":message['stream_port'],'send_to':[address[0]]}
+    def send_stream(self, s, stream, ant_node):
+        try:
+            stream_port = self.streamings[stream]['port']
+            s.bind((ant_node, stream_port))
             
-            #criar socket para enviar a stream
-            s1 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            send_stream = threading.Thread(target=self.send_stream, args=(s1,message['stream_name'],prox_node))
-            send_stream.start()
-            #informar o proximo para começar a mandar
+            udp_socket_enviar = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+            while True:
+                try:
+                    dados, endereco_remetente = s.recvfrom(1024)
+
+                    print(f"Recebido: {dados.decode('utf-8')} de {endereco_remetente}")
+                    
+                    for node in self.streamings[stream]['send_to']:
+                        try:
+                            udp_socket_enviar.sendto(dados, (node, message['stream_port']))
+                        except socket.error as sendto_error:
+                            print(f"Erro ao enviar para {node}: {sendto_error}\n")
+                            # Adicione lógica de tratamento de erro específica para falha ao enviar para um nó
+                except socket.error as recvfrom_error:
+                    print(f"Erro ao receber dados: {recvfrom_error}\n")
+                    # Adicione lógica de tratamento de erro específica para falha ao receber dados
+
+        except socket.error as bind_error:
+            print(f"Erro ao fazer bind do socket: {bind_error}\n")
+
+        except Exception as ex:
+            print(f"Erro desconhecido: {ex}\n")
+
+        finally:
+            s.close()
+
+    def send_tcp(self,message,address):
+        if address[0] in self.sockets.keys():
+            s = self.sockets[address[0]]['socket']
+            if message['hostname'] not in self.sockets[address[0]]['client']:
+                self.sockets[address[0]]['client'].append(message['hostname'])
+
             message_data = json.dumps(message)
-            s.sendto(message_data.encode('utf-8'), (prox_node,port_flooding ))
+            s.sendto(message_data.encode('utf-8'), (address[0],self.sockets[address[0]]['port']))
+        else:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                s.connect(address)
+            except Exception as ex:
+                print(f"Erro ao conectar com {address}: {ex}\n")
+                s.close()
+                return  None
+            self.sockets[address]={'client':[message['hostname']],'socket':s}
 
-    def send_stream(self,s,stream,prox_node):
-        s.bind((prox_node,message['stream_port']))
+            message_data = json.dumps(message)
+            s.sendto(message_data.encode('utf-8'), address)
 
-        # Socket de envio
-        udp_socket_enviar = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-        # Loop principal para receber e enviar mensagens
-        while True:
-            # Recebe dados do socket (o segundo valor retornado é o endereço
-            #  do remetente)
-            dados, endereco_remetente = s.recvfrom(1024)
-
-            # Exibe a mensagem recebida
-            print(f"Recebido: {dados.decode('utf-8')} de {endereco_remetente}")
-            for node in self.streamings[stream]['send_to']:
-            # Envia a mensagem para os dois destinos diferentes
-                udp_socket_enviar.sendto(dados, (node,message['stream_port']))
+            handle = threading.Thread(target=self.handle_tcp_client, args=(s,address))
+            handle.start()
         
-        s.close()
-        udp_socket_enviar.close()
+        print(f"Envidados: {message} para {address}\n")
+
+    
+
 
 nodo = Nodo()
 

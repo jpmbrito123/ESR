@@ -37,7 +37,8 @@ class Client:
 		self.frameNbr = 0
 		self.fileName=fileName
 		self.my_ip=ip
-		
+		self.rtpSocket = None
+
 	def createWidgets(self):
 		"""Build GUI."""
 		# Create Setup button
@@ -162,7 +163,7 @@ class Client:
 				'state':self.SETUP,
 				'tempo': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
 				'saltos': 0,
-				'path': [],
+				'path': [self.my_ip],
 				'sequenceNumber': self.rtspSeq
 			} 
 			
@@ -261,32 +262,31 @@ hostname: {self.hostname} rtspPort: {self.rtpPort}"""
 
 	def parseRtspReply(self, data):
 		"""Parse the RTSP reply from the server."""
-		lines = data.split('\n')
+		message = json.loads(data)
 
-		if int(lines[0].split(' ')[1]) == 404 or int(lines[0].split(' ')[1]) == 500:
-			next_server = self.nextServer(self.serverAddr)
-			
-			if next_server is not None:
-				self.serverAddr, self.serverPort = next_server
-			else:
-				print("Não existem servidores com o vídeo disponível.")
-		
-		seqNum = int(lines[1].split(' ')[1])
+		#if int(lines[0].split(' ')[1]) == 404 or int(lines[0].split(' ')[1]) == 500:
+		#	next_server = self.nextServer(self.serverAddr)
+		#	
+		#	if next_server is not None:
+		#		self.serverAddr, self.serverPort = next_server
+		#	else:
+		#		print("Não existem servidores com o vídeo disponível.")
 
 		# Process only if the server reply's sequence number is the same as the request's
-		if seqNum == self.rtspSeq:
-			session = int(lines[2].split(' ')[1])
+		if message['sequenceNumber'] == self.rtspSeq:
+			session = message['stream_port']
 			# New RTSP session ID
 			if self.sessionId == 0:
 				self.sessionId = session
 			
 			# Process only if the session ID is the same
 			if self.sessionId == session:
-				if int(lines[0].split(' ')[1]) == 200: 
+				if session != 404: 
 					if self.requestSent == self.SETUP:
 						# Update RTSP state.
 						self.state = self.READY
-						
+						print("Data received:\n")
+						print(message)
 						# Open RTP port.
 						self.openRtpPort() 
 					elif self.requestSent == self.PLAY:

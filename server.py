@@ -1,33 +1,7 @@
 import socket
 from socket import SO_REUSEADDR, SOL_SOCKET
-
+from PIL import Image, ImageTk
 from ServerWorker import ServerWorker
-
-def handler_404(client_info, is_big_node, nearest_server):
-    """
-    if is_big_node:
-        # envia um pedido ao servidor mais próximo
-        for i in nearest_server:
-            try:
-
-                # envia pedido
-                break
-            except Exception:
-                continue
-    """
-
-    print(f"404 NOT FOUND.\n{client_info}\n")
-    reply = 'RTSP/1.0 404 NOT_FOUND\nCSeq: ' + '\nSession: ' + str(client_info['session'])
-    conn_socket = (client_info['rtspSocket'])[0]
-    conn_socket.send(reply.encode())
-
-
-def handler_500(client_info):
-    print(f"500 CONNECTION ERROR.\n{client_info}\n")
-    reply = 'RTSP/1.0 500 CONNECTION_ERROR\nCSeq: ' + '\nSession: ' + str(client_info['session'])
-    conn_socket = (client_info['rtspSocket'])[0]
-    conn_socket.send(reply.encode())
-
 
 def stream(streamer_info):
     # streamer_info = (node_id, port_streaming, is_server, MAX_CONN, file_id, message['nearest_server'])
@@ -37,27 +11,14 @@ def stream(streamer_info):
     rtsp_socket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
     rtsp_socket.bind((streamer_info[0], streamer_info[1]))
 
-    if streamer_info[2]:
-        print(f"\nServidor à escuta em {streamer_info[0]}: {streamer_info[1]} (streaming)\n")
-    else:
-        print(f"\nBig Node à escuta em {streamer_info[0]}: {streamer_info[1]} (streaming)\n")
-
-    rtsp_socket.listen(streamer_info[3])
-
+    rtsp_socket.listen(5)
+    print(f"[{streamer_info[0]} à escuta em {streamer_info[1]}]\n")
     # Receber informação sobre cliente (ip,porta) através da sessão RTSP/TCP
     while True:
+        client_socket, client_address = rtsp_socket.accept()
         client_info = {}
-        try:
-            client_info = {'rtspSocket': rtsp_socket.accept()}
-            ServerWorker(client_info, streamer_info[4], nodes_interested, not streamer_info[2], streamer_info[5]).run()
-
-        except Exception as ex:
-            if ex == "404":
-                handler_404(client_info, not streamer_info[2], streamer_info[5])
-            elif ex == "500":
-                handler_500(client_info)
-            else:
-                print(f"Exception: [{ex}]\n")
-            break
+        client_info = {'rtspSocket': client_socket,'address':client_address}
+        print(f"Conexão estabelecida com {client_info['address']}\n")
+        ServerWorker(client_info).run()
 
     rtsp_socket.close()

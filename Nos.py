@@ -24,6 +24,7 @@ class Nodo:
     rps = []
     cls = []
     nos = []
+    sv = []
     sockets = {}
     SETUP = 0
     PLAY = 1
@@ -37,6 +38,7 @@ class Nodo:
         self.rps = dados["RP"]
         self.cls = dados["CL"]
         self.nos = dados["NO"]
+        self.sv = dados["SV"]
         self.my_type = dados["type"]
         self.my_ip = dados["ip"]
             
@@ -47,11 +49,13 @@ class Nodo:
         if self.my_type == "Rp":
             rp = Rp(self.rps,self.cls,self.nos,self.my_ip,port_flooding)
             rp.run()
+        elif self.my_type == "Server":
+            stream((self.my_ip, port_flooding))
         elif self.my_type == "Client":
             root = Tk()
 	
             # Create a new client
-            app = Client(root, self.nos[0], port_flooding, port_flooding,"videoA",self.my_ip)
+            app = Client(root, self.nos[0], port_flooding,"videoA",self.my_ip)
             app.master.title("RTPClient")	
             root.mainloop()
         else:
@@ -125,10 +129,9 @@ class Nodo:
             elif self.my_ip not in m['path']:
                 m['saltos']=m['saltos']+1
                 m['path'].append(self.my_ip)
-                for nodes in [self.nos,self.rps]:
+                for nodes in [self.nos,self.rps,self.sv]:
                     for node in nodes:
                         if node!=address[0]:
-                            print(f"\n[{self.my_ip}] enviou para [{node}:{port_flooding}]\n")
                             self.send_tcp(m,(node,port_flooding ))
     
     def start_stream(self,message,address):
@@ -138,24 +141,22 @@ class Nodo:
         my_index = message['path'].index(self.my_ip)
         prox_node = message['path'][my_index+1]
         self.streamings[message['stream_name']]['send_to'].append(address[0])
-        self.send_tcp(m,(node,port_flooding ))
+        self.send_tcp(message,(prox_node,port_flooding ))
 
     def send_stream(self, s, stream, ant_node):
         try:
             stream_port = self.streamings[stream]['port']
-            s.bind((ant_node, stream_port))
+            s.bind((self.my_ip, stream_port))
             
             udp_socket_enviar = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
+            print(f"\n[Socket de stream aberta de {self.my_ip}] para [{ant_node}]")
             while True:
                 try:
-                    dados, endereco_remetente = s.recvfrom(1024)
-
-                    print(f"Recebido: {dados.decode('utf-8')} de {endereco_remetente}")
+                    dados, endereco_remetente = s.recvfrom(20480)
                     
                     for node in self.streamings[stream]['send_to']:
                         try:
-                            udp_socket_enviar.sendto(dados, (node, message['stream_port']))
+                            udp_socket_enviar.sendto(dados, (node, stream_port))
                         except socket.error as sendto_error:
                             print(f"Erro ao enviar para {node}: {sendto_error}\n")
                             # Adicione lógica de tratamento de erro específica para falha ao enviar para um nó
@@ -184,19 +185,22 @@ class Nodo:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             try:
                 s.connect(address)
+                print(f"Conexão estabelecida com {address}\n")
             except Exception as ex:
                 print(f"Erro ao conectar com {address}: {ex}\n")
                 s.close()
                 return  None
-            self.sockets[address]={'client':[message['hostname']],'socket':s}
-
+      
+            self.sockets[address[0]]={'port':address[1],'client':[message['hostname']],'socket':s}
             message_data = json.dumps(message)
             s.sendto(message_data.encode('utf-8'), address)
 
             handle = threading.Thread(target=self.handle_tcp_client, args=(s,address))
             handle.start()
         
-        print(f"Envidados: {message} para {address}\n")
+        print(f"\n[{self.my_ip}] enviou para [{address}]")
+        print(f"{message}\n")
+        
 
     
 

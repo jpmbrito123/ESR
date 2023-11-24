@@ -1,15 +1,16 @@
 from random import randint
 import sys, traceback, threading, socket
+import json
 
 from VideoStream import VideoStream
 from RtpPacket import RtpPacket
 
 
 class ServerWorker:
-    SETUP = 'SETUP'
-    PLAY = 'PLAY'
-    PAUSE = 'PAUSE'
-    TEARDOWN = 'TEARDOWN'
+    SETUP = 0
+    PLAY = 1
+    PAUSE = 2
+    TEARDOWN = 3
 
     INIT = 0
     READY = 1
@@ -30,25 +31,29 @@ class ServerWorker:
 
     def recvRtspRequest(self):
         """Receive RTSP request from the client."""
-        connSocket = self.clientInfo['rtspSocket'][0]
+        connSocket = self.clientInfo['rtspSocket']
         while True:
-            data = connSocket.recv(256)
-            if data:
-                print("Data received:\n" + data.decode("utf-8"))
-                self.processRtspRequest(data.decode("utf-8"))
+            try:
+                data = json.loads(connSocket.recv(1024).decode("utf-8"))
+                if data:
+                    print(f"Data received:{data}\n")
+                    self.processRtspRequest(data)
+            except Exception as ex:
+                # Trate outras exceções não especificadas
+                print(f"Erro desconhecido: {ex}\nConeçao com {self.clientInfo['address']} fechada\n\n")
+                self.clientInfo['rtspSocket'].close()
+                break  # Saia do loop ou tome outras medidas, dependendo do caso
 
     def processRtspRequest(self, data):
         """Process RTSP request sent from the client."""
         # Get the request type
-        request = data.split('\n')
-        line1 = request[0].split(' ')
-        requestType = line1[0]
+        requestType = data['state']
 
         # Get the media file name
-        filename = line1[1]
+        filename = data['stream_name']
 
         # Get the RTSP sequence number
-        seq = request[1].split(' ')
+        seq = data['sequenceNumber']
 
         # Process SETUP request
         if requestType == self.SETUP:
@@ -59,28 +64,25 @@ class ServerWorker:
                 try:
                     self.clientInfo['videoStream'] = VideoStream(filename)
                     self.state = self.READY
-                except IOError:
-                    self.replyRtsp(self.FILE_NOT_FOUND_404, seq[1])
+                except IOError as io:
+                    self.state = self.READY
+                    print(f"Erro ao abrir ficheiro:{io}")
+                    #self.send_tcp(self.FILE_NOT_FOUND_404)
 
                 # Generate a randomized RTSP session ID
                 self.clientInfo['session'] = randint(100000, 999999)
-
+                
                 # Send RTSP reply
-                self.replyRtsp(self.OK_200, seq[1])
+                self.send_tcp(data)
 
                 # Get the RTP/UDP port from the last line
-                self.clientInfo['rtpPort'] = request[2].split(' ')[3]
+                self.clientInfo['rtpPort'] = data['stream_port']
 
         # Process PLAY request
         elif requestType == self.PLAY:
             if self.state == self.READY:
                 print("processing PLAY\n")
                 self.state = self.PLAYING
-
-                # Create a new socket for RTP/UDP
-                self.clientInfo["rtpSocket"] = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-                self.replyRtsp(self.OK_200, seq[1])
 
                 # Create a new thread and start sending RTP packets
                 self.clientInfo['event'] = threading.Event()
@@ -95,7 +97,7 @@ class ServerWorker:
 
                 self.clientInfo['event'].set()
 
-                self.replyRtsp(self.OK_200, seq[1])
+                self.send_tcp(self.OK_200, seq[1])
 
         # Process TEARDOWN request
         elif requestType == self.TEARDOWN:
@@ -103,7 +105,7 @@ class ServerWorker:
 
             self.clientInfo['event'].set()
 
-            self.replyRtsp(self.OK_200, seq[1])
+            self.send_tcp(self.OK_200, seq[1])
 
             # Close the RTP socket
             self.clientInfo['rtpSocket'].close()
@@ -121,7 +123,7 @@ class ServerWorker:
             if data:
                 frameNumber = self.clientInfo['videoStream'].frameNbr()
                 try:
-                    address = self.clientInfo['rtspSocket'][1][0]
+                    address = self.clientInfo['address'][0]
                     port = int(self.clientInfo['rtpPort'])
                     self.clientInfo['rtpSocket'].sendto(self.makeRtp(data, frameNumber), (address, port))
                 except:
@@ -147,19 +149,17 @@ class ServerWorker:
 
         return rtpPacket.getPacket()
 
-    def replyRtsp(self, code, seq):
-        """Send RTSP reply to the client."""
-        if code == self.OK_200:
-            # print("200 OK")
-            reply = 'RTSP/1.0 200 OK\nCSeq: ' + seq + '\nSession: ' + str(self.clientInfo['session'])
-            connSocket = self.clientInfo['rtspSocket'][0]
-            connSocket.send(reply.encode())
+    def send_tcp(self, data):
+        self.clientInfo["rtpSocket"] = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        print(f"\n[Socket de stream aberta para:{self.clientInfo['address']}]")
 
-        # Error messages
-        elif code == self.FILE_NOT_FOUND_404:
-            print("404 NOT FOUND")
-        elif code == self.CON_ERR_500:
-            print("500 CONNECTION ERROR")
+        data['state']=4
+        message_data = json.dumps(data)
+        connSocket = self.clientInfo['rtspSocket']
+        connSocket.send(message_data.encode('utf-8'))
+        
+        print(f"\n[] enviei para [{self.clientInfo['address']}]")
+        print(f"{data}\n")
 
     def send(self):
         # Verificar o tipo de solicitação e o estado do cliente

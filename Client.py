@@ -22,13 +22,13 @@ class Client:
 	TEARDOWN = 3
 	
 	# Initiation..
-	def __init__(self, master, serveraddr, serverport, rtpport,fileName,ip):
+	def __init__(self, master, serveraddr, serverport,fileName,ip):
 		self.master = master
 		self.master.protocol("WM_DELETE_WINDOW", self.handler)
 		self.createWidgets()
 		self.serverAddr = serveraddr
 		self.serverPort = int(serverport)
-		self.rtpPort = int(rtpport)
+		self.rtpPort = None
 		self.rtspSeq = 0
 		self.sessionId = 0
 		self.requestSent = -1
@@ -38,6 +38,7 @@ class Client:
 		self.fileName=fileName
 		self.my_ip=ip
 		self.rtpSocket = None
+		self.resposta=None
 
 	def createWidgets(self):
 		"""Build GUI."""
@@ -90,10 +91,10 @@ class Client:
 		"""Play button handler."""
 		if self.state == self.READY:
 			# Create a new thread to listen for RTP packets
-			threading.Thread(target=self.listenRtp).start()
 			self.playEvent = threading.Event()
 			self.playEvent.clear()
 			self.sendRtspRequest(self.PLAY)
+			threading.Thread(target=self.listenRtp).start()
 	
 	def listenRtp(self):		
 		"""Listen for RTP packets."""
@@ -110,17 +111,17 @@ class Client:
 					if currFrameNbr > self.frameNbr: # Discard the late packet
 						self.frameNbr = currFrameNbr
 						self.updateMovie(self.writeFrame(rtpPacket.getPayload()))
-			except:
-				# Stop listening upon requesting PAUSE or TEARDOWN
-				if self.playEvent.isSet(): 
-					break
-				
-				# Upon receiving ACK for TEARDOWN request,
-				# close the RTP socket
+			except Exception as ex:
+				print(f"Erro:{ex}")
+			 	# Stop listening upon requesting PAUSE or TEARDOWN
+				if self.playEvent.isSet():
+			 		break	
+			 	# Upon receiving ACK for TEARDOWN request,
+			 	# close the RTP socket
 				if self.teardownAcked == 1:
-					self.rtpSocket.shutdown(socket.SHUT_RDWR)
-					self.rtpSocket.close()
-					break
+			 		self.rtpSocket.shutdown(socket.SHUT_RDWR)
+			 		self.rtpSocket.close()
+			 		break
 					
 	def writeFrame(self, data):
 		"""Write the received frame to a temp image file. Return the image file."""
@@ -172,17 +173,24 @@ class Client:
 		
 		# Play request
 		elif requestCode == self.PLAY and self.state == self.READY:
+			self.openRtpPort()
 			# Update RTSP sequence number.
 			self.rtspSeq += 1
 			print('\nPLAY event\n')
-
             # Write the RTSP request to be sent.
-			request = f"""PLAY {self.fileName}
-sequenceNumber: {self.rtspSeq}
-hostname: {self.hostname} rtspPort: {self.rtpPort}"""
+			request = {
+				'hostname': self.my_ip,
+				'stream_name':self.fileName,
+				'stream_port': None,
+				'state':self.PLAY,
+				'tempo': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+				'saltos': 0,
+				'path': self.resposta['path'],
+				'sequenceNumber': self.rtspSeq
+			} 
 
             # Keep track of the sent request.
-			self.requestSent = self.PLAY
+			self.requestSent = self.PLAY 
 		
 		# Pause request
 		elif requestCode == self.PAUSE and self.state == self.PLAYING:
@@ -285,10 +293,10 @@ hostname: {self.hostname} rtspPort: {self.rtpPort}"""
 					if self.requestSent == self.SETUP:
 						# Update RTSP state.
 						self.state = self.READY
-						print("Data received:\n")
-						print(message)
-						# Open RTP port.
-						self.openRtpPort() 
+						print(f"Data received:{message}\n")
+						self.resposta=message
+						self.rtpPort=message['stream_port']
+						# Open RTP port. 
 					elif self.requestSent == self.PLAY:
 						
 						self.state = self.PLAYING
@@ -318,13 +326,13 @@ hostname: {self.hostname} rtspPort: {self.rtpPort}"""
 		self.rtpSocket.settimeout(0.5)
 		
 		try:
-			print(self.rtpAddress)
+			print(self.my_ip)
 			# Bind the socket to the address using the RTP port given by the client user
-			self.rtpSocket.bind((self.rtpAddress, self.rtpPort))			
+			self.rtpSocket.bind((self.my_ip, self.rtpPort))			
 
 			print('\nBind \n')
-		except:
-			messagebox.showwarning('Unable to Bind', 'Unable to bind PORT=%d' %self.rtpPort)
+		except Exception as ex:
+			messagebox.showwarning(f'Unable to Bind', f'Unable to bind PORT={self.rtpPort}\nErro:{ex}')
 
 	def handler(self):
 		"""Handler on explicitly closing the GUI window."""

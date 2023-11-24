@@ -115,13 +115,13 @@ class Client:
 				print(f"Erro:{ex}")
 			 	# Stop listening upon requesting PAUSE or TEARDOWN
 				if self.playEvent.isSet():
-			 		break	
+					break
 			 	# Upon receiving ACK for TEARDOWN request,
 			 	# close the RTP socket
 				if self.teardownAcked == 1:
-			 		self.rtpSocket.shutdown(socket.SHUT_RDWR)
-			 		self.rtpSocket.close()
-			 		break
+					self.rtpSocket.shutdown(socket.SHUT_RDWR)
+					self.rtpSocket.close()
+					break
 					
 	def writeFrame(self, data):
 		"""Write the received frame to a temp image file. Return the image file."""

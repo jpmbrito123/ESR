@@ -1,7 +1,7 @@
 from tkinter import *
 from tkinter import messagebox
 from PIL import Image, ImageTk
-import socket, threading, sys, traceback, os
+import socket, threading, sys, traceback, os, subprocess, re
 from datetime import datetime
 import json
 
@@ -80,7 +80,10 @@ class Client:
 		"""Teardown button handler."""
 		self.sendRtspRequest(self.TEARDOWN)		
 		self.master.destroy() # Close the gui window
-		os.remove(CACHE_FILE_NAME + str(self.sessionId) + CACHE_FILE_EXT) # Delete the cache image from video
+		try:
+			os.remove(CACHE_FILE_NAME + str(self.sessionId) + CACHE_FILE_EXT)  # Delete the cache image from video
+		except FileNotFoundError:
+			pass
 
 	def pauseMovie(self):
 		"""Pause button handler."""
@@ -106,21 +109,24 @@ class Client:
 					rtpPacket.decode(data)
 					
 					currFrameNbr = rtpPacket.seqNum()
-					print("Current Seq Num: " + str(currFrameNbr))
 										
 					if currFrameNbr > self.frameNbr: # Discard the late packet
+						print("Current Seq Num: " + str(currFrameNbr))
 						self.frameNbr = currFrameNbr
 						self.updateMovie(self.writeFrame(rtpPacket.getPayload()))
+					else:
+						print(f'foram despejados {self.frameNbr - currFrameNbr} pacotes ')
 			except Exception as ex:
-				print(f"Erro:{ex}")
 			 	# Stop listening upon requesting PAUSE or TEARDOWN
 				if self.playEvent.isSet():
-					break
-			 	# Upon receiving ACK for TEARDOWN request,
-			 	# close the RTP socket
+			 		break
+				
+			# 	# Upon receiving ACK for TEARDOWN request,
+			# 	# close the RTP socket
 				if self.teardownAcked == 1:
 					self.rtpSocket.shutdown(socket.SHUT_RDWR)
 					self.rtpSocket.close()
+					self.rtpSocket = None
 					break
 					
 	def writeFrame(self, data):
@@ -162,8 +168,7 @@ class Client:
 				'stream_name':self.fileName,
 				'stream_port': None,
 				'state':self.SETUP,
-				'tempo': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-				'saltos': 0,
+				'latencia': self.medir_latencia(self.serverAddr),
 				'path': [self.my_ip],
 				'sequenceNumber': self.rtspSeq
 			} 
@@ -173,7 +178,8 @@ class Client:
 		
 		# Play request
 		elif requestCode == self.PLAY and self.state == self.READY:
-			self.openRtpPort()
+			if self.rtpSocket == None:
+				self.openRtpPort()
 			# Update RTSP sequence number.
 			self.rtspSeq += 1
 			print('\nPLAY event\n')
@@ -181,16 +187,16 @@ class Client:
 			request = {
 				'hostname': self.my_ip,
 				'stream_name':self.fileName,
-				'stream_port': None,
+				'stream_port': self.rtpPort,
 				'state':self.PLAY,
 				'tempo': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-				'saltos': 0,
 				'path': self.resposta['path'],
 				'sequenceNumber': self.rtspSeq
 			} 
 
             # Keep track of the sent request.
 			self.requestSent = self.PLAY 
+			self.state = self.PLAYING
 		
 		# Pause request
 		elif requestCode == self.PAUSE and self.state == self.PLAYING:
@@ -199,12 +205,19 @@ class Client:
 			print('\nPAUSE event\n')
 
             # Write the RTSP request to be sent.
-			request = f"""PAUSE {self.fileName}
-sequenceNumber: {self.rtspSeq}
-hostname: {self.hostname} rtspPort: {self.rtpPort}"""
+			request = {
+				'hostname': self.my_ip,
+				'stream_name':self.fileName,
+				'stream_port': self.rtpPort,
+				'state':self.PAUSE,
+				'tempo': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+				'path': self.resposta['path'],
+				'sequenceNumber': self.rtspSeq
+			} 
 
             # Keep track of the sent request.
 			self.requestSent = self.PAUSE
+			self.state = self.READY
 			
 		# Teardown request
 		elif requestCode == self.TEARDOWN and not self.state == self.INIT:
@@ -213,9 +226,16 @@ hostname: {self.hostname} rtspPort: {self.rtpPort}"""
 			print('\nTEARDOWN event\n')
 
             # Write the RTSP request to be sent.
-			request = f"""TEARDOWN {self.fileName}
-sequenceNumber: {self.rtspSeq}
-hostname: {self.hostname} rtspPort: {self.rtpPort}"""
+			request = {
+				'hostname': self.my_ip,
+				'stream_name':self.fileName,
+				'stream_port': self.rtpPort,
+				'state':self.TEARDOWN,
+				'latencia': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+				'path': self.resposta['path'],
+				'sequenceNumber': self.rtspSeq
+			} 
+			self.teardownAcked = 1
 
             # Keep track of the sent request.
 			self.requestSent = self.TEARDOWN
@@ -243,30 +263,6 @@ hostname: {self.hostname} rtspPort: {self.rtpPort}"""
 				self.rtspSocket.shutdown(socket.SHUT_RDWR)
 				self.rtspSocket.close()
 				break
-	
-	# # quando o ficheiro não existe no servidor atual, procura o próximo
-	# def next_(self, ip):
-	# 	if ip in [i for (i, p, ips, ps, t, s, b) in self.nearest_servers]:
-	# 		index = [i for (i, p, ips, ps, t, s, b) in self.nearest_servers].index(ip)
-			
-	# 		if index == len(self.nearest_servers) - 1:
-	# 			return None
-	# 		else:
-	# 			next_value = self.nearest_servers[index + 1]
-	# 			return next_value[0], next_value[1]
-	# 	else:
-	# 		return None
-
-	def nextServer(self, ip):
-    # Procura o índice do IP na lista
-		index = next((i for i, (i, p, ips, ps, t, s, b) in enumerate(self.nearest_servers) if ips == ip), None)
-    	
-		if index is not None and index < len(self.nearest_servers) - 1:
-			next_server = self.nearest_servers[index + 1]
-			return next_server[0], next_server[1]
-		else:
-			return None
-
 
 	def parseRtspReply(self, data):
 		"""Parse the RTSP reply from the server."""
@@ -341,3 +337,13 @@ hostname: {self.hostname} rtspPort: {self.rtpPort}"""
 			self.exitClient()
 		else: # When the user presses cancel, resume playing.
 			self.playMovie()
+
+	def medir_latencia(self,host):
+		resultado = subprocess.run(['ping', '-c', '1', host], capture_output=True, text=True, timeout=10)
+		match = re.search(r"time=(\d+(\.\d+)?)", resultado.stdout)
+		if match:
+			return float(match.group(1))
+		else:
+			return 1000
+   
+

@@ -1,24 +1,69 @@
 import socket
+import threading
 from socket import SO_REUSEADDR, SOL_SOCKET
 from PIL import Image, ImageTk
 from ServerWorker import ServerWorker
+from datetime import datetime
+import os
+import time
+import json
 
-def stream(streamer_info):
-    # streamer_info = (node_id, port_streaming, is_server, MAX_CONN, file_id, message['nearest_server'])
-    nodes_interested = []
+class Server:
+    SETUP = 0
+    PLAY = 1
+    PAUSE = 2
+    TEARDOWN = 3
+    
+    SETUP_REPLY = 4
+    SETUP_STREAMS = 5
 
-    rtsp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    rtsp_socket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-    rtsp_socket.bind((streamer_info[0], streamer_info[1]))
+    def __init__(self,rp,ip,port_flooding,localizaçao):
+        self.rp=rp
+        self.my_ip=ip
+        self.port_flooding=port_flooding
 
-    rtsp_socket.listen(5)
-    print(f"[{streamer_info[0]} à escuta em {streamer_info[1]}]\n")
-    # Receber informação sobre cliente (ip,porta) através da sessão RTSP/TCP
-    while True:
-        client_socket, client_address = rtsp_socket.accept()
-        client_info = {}
-        client_info = {'rtspSocket': client_socket,'address':client_address}
-        print(f"Conexão estabelecida com {client_info['address']}\n")
-        ServerWorker(client_info).run()
+        self.socket=self.connectToServer()
+        self.streamings=self.search_streams(localizaçao)
+        handle = threading.Thread(target=self.handle_tcp_client, args=(self.socket,)).start()    
 
-    rtsp_socket.close()
+    def connectToServer(self):
+        rp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        rp_socket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+        rp_socket.connect((self.rp, self.port_flooding))
+        return rp_socket
+
+    def search_streams(self,localizaçao):
+        arquivos_na_pasta = os.listdir(localizaçao)
+        streams={}
+        for video in arquivos_na_pasta:
+            st = ServerWorker(video,self.rp,self.socket)
+            streams[video]=st
+        return streams
+
+    def handle_tcp_client(self,s):
+        request = {
+				'hostname': self.my_ip,
+				'stream_name':list(self.streamings.keys()),
+                'tempo': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+				'state':self.SETUP_STREAMS
+		} 
+
+        destAddr = (self.rp, self.port_flooding)
+        self.socket.sendto(json.dumps(request).encode('utf-8'), destAddr)
+        
+        while True:
+            try:
+                message = json.loads(s.recv(1024).decode('utf-8'))
+                print(f"Recebi: {message} de {(self.rp,self.port_flooding)}\n")
+                st = self.streamings[message['stream_name']]
+                process_message = threading.Thread(target=st.run, args=(message,)).start()
+                
+            
+            except Exception as ex:
+                # Trate outras exceções não especificadas
+                print(f"Erro desconhecido: {ex}\nConeçao com {(self.rp,self.port_flooding)} fechada\n\n")
+                s.close()
+
+                time.sleep(5)
+                self.socket=self.connectToServer()
+                break  # Saia do loop ou tome outras medidas, dependendo do caso

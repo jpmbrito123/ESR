@@ -1,35 +1,52 @@
 # Over-the-Top (OTT) Multimedia Delivery Service
 
-Este projeto visa o desenvolvimento de um protótipo de serviço de entrega de multimédia OTT (Over-the-Top), utilizando o emulador CORE como bancada de testes. O objetivo é criar uma rede overlay aplicacional para a transmissão eficiente de áudio, vídeo e texto em tempo real, a partir de um servidor de conteúdos para um conjunto de N clientes. A implementação se dará em etapas que englobam desde a preparação inicial até a construção de fluxos de dados otimizados, monitoramento de servidores, e estratégias de recuperação de falhas.
+This project consists of developing a prototype for an Over-the-Top (OTT) multimedia delivery system, using the CORE emulator as a testbed. The goal is to build an application-level overlay network capable of delivering real-time audio, video, and text streams from a content server to multiple clients efficiently.
 
-## Estrutura do Projeto
-### Preparação das Atividades
+## Project Overview
 
-- Escolha da linguagem de programação.
-- Configuração da topologia de testes no emulador CORE.
-- Definição do protocolo de transporte (TCP ou UDP).
-- Implementação inicial de um cliente/servidor simples.
+The implementation was carried out in several phases, addressing core components of multimedia streaming systems, including initial setup, overlay network construction, content delivery, monitoring, and fault tolerance.
 
-### Construção da Topologia Overlay com Árvore Partilhada
+## Key Features
 
-- Desenvolvimento de uma aplicação (oNode) que atua como cliente e servidor.
-- Testes com envio e recepção de mensagens.
-- Implementação de estratégias para a construção da rede overlay.
-- Manutenção das ligações entre o RP e os servidores.
-### Serviço de Streaming
+### 1. Initial Setup and Test Environment
 
-- Implementação de cliente e servidor de streaming baseados em exemplos.
-- Adaptação do código para leitura e transmissão de vídeos.
-- Utilização de codecs adicionais e diferentes vídeos para testes.
-### Monitorização dos Servidores de Conteúdos
+- Selected the programming language for the implementation.
+- Designed and configured the network topology using the CORE emulator.
+- Defined the transport protocol (TCP/UDP) based on system requirements.
+- Built a basic client-server application for testing connectivity.
 
-- Troca de mensagens de prova entre o RP e os servidores.
-- Cálculo e uso de métricas para determinar o servidor mais adequado para a difusão de conteúdos.
-### Construção dos Fluxos para Entrega de Dados
+### 2. Overlay Network Construction (Shared Tree)
 
-- Minimização do tráfego gerado na rede.
-- Implementação de estratégias para gerenciar os fluxos de transmissão de conteúdo.
-### Métodos de Recuperação de Falhas e Adição de Novos Nós
+- Developed an overlay node (`oNode`) capable of acting as both a client and a server.
+- Implemented message transmission and reception for overlay communication.
+- Designed and deployed overlay construction strategies.
+- Maintained persistent connections between Rendezvous Points (RP) and servers.
 
-- Estratégias para recuperação de falhas na rede overlay.
-- Suporte para a adição de novos nós à rede.
+### 3. Multimedia Streaming Service
+
+- Implemented a streaming service based on provided examples.
+- Adapted the system for real-time video transmission and playback.
+- Incorporated different codecs and video files for compatibility testing.
+
+### 4. Content Server Monitoring
+
+- Implemented heartbeat messages between the RP and servers.
+- Defined and used metrics to dynamically select the most suitable server for each client.
+
+### 5. Optimized Content Delivery
+
+- Built intelligent data flows to reduce network overhead.
+- Developed traffic management strategies for stream delivery across the overlay.
+
+### 6. Fault Recovery and Node Management
+
+- Introduced fault tolerance mechanisms for overlay disconnection and recovery.
+- Added support for seamless integration of new nodes into the overlay network.
+
+## Technologies
+
+- Language: Python (mainly used)
+- Network Emulator: [CORE](https://www.nrl.navy.mil/itd/ncs/products/core)
+- Protocols: TCP, UDP
+- Multimedia: ffmpeg, VLC, video codecs
+

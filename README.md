@@ -1,10 +1,10 @@
 # Over-the-Top (OTT) Multimedia Delivery Service
 
-This project consists of developing a prototype for an Over-the-Top (OTT) multimedia delivery system, using the CORE emulator as a testbed. The goal is to build an application-level overlay network capable of delivering real-time audio, video, and text streams from a content server to multiple clients efficiently.
+This project consists of developing a prototype for an Over-the-Top (OTT) multimedia delivery system, using the CORE emulator as a testbed. The goal is to build an application-level overlay network capable of delivering real-time audio, video and text streams from a content server to multiple clients efficiently.
 
 ## Project Overview
 
-The implementation was carried out in several phases, addressing core components of multimedia streaming systems, including initial setup, overlay network construction, content delivery, monitoring, and fault tolerance.
+The implementation was carried out in several phases, addressing core components of multimedia streaming systems, including initial setup, overlay network construction, content delivery, monitoring and fault tolerance.
 
 ## Key Features
 
